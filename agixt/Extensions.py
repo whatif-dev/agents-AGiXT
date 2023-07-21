@@ -9,14 +9,11 @@ import inspect
 class Extensions:
     def __init__(self, agent_config=None, load_commands_flag: bool = True):
         self.agent_config = agent_config
-        if load_commands_flag:
-            self.commands = self.load_commands()
-        else:
-            self.commands = []
+        self.commands = self.load_commands() if load_commands_flag else []
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
-            if self.agent_config["commands"] == None:
+            if self.agent_config["commands"] is None:
                 self.agent_config["commands"] = {}
             self.available_commands = self.get_available_commands()
 
@@ -30,10 +27,7 @@ class Extensions:
                 "commands" in self.agent_config
                 and friendly_name in self.agent_config["commands"]
             ):
-                if (
-                    self.agent_config["commands"][friendly_name] == "true"
-                    or self.agent_config["commands"][friendly_name] == True
-                ):
+                if self.agent_config["commands"][friendly_name] in ["true", True]:
                     # Add command to list of commands to return
                     available_commands.append(
                         {
@@ -46,11 +40,7 @@ class Extensions:
         return available_commands
 
     def get_enabled_commands(self):
-        enabled_commands = []
-        for command in self.available_commands:
-            if command["enabled"]:
-                enabled_commands.append(command)
-        return enabled_commands
+        return [command for command in self.available_commands if command["enabled"]]
 
     def get_command_args(self, command_name: str):
         extensions = self.get_extensions()
@@ -118,8 +108,7 @@ class Extensions:
 
     def get_commands_list(self):
         self.commands = self.load_commands()
-        commands_list = [command_name for command_name, _, _ in self.commands]
-        return commands_list
+        return [command_name for command_name, _, _ in self.commands]
 
     async def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name=command_name)
@@ -131,7 +120,7 @@ class Extensions:
             return False
         for param in params:
             if param not in command_args:
-                if param != "self" and param != "kwargs":
+                if param not in ["self", "kwargs"]:
                     command_args[param] = None
         args = command_args.copy()
         for param in command_args:
@@ -150,10 +139,7 @@ class Extensions:
         for name, param in sig.parameters.items():
             if name == "self":
                 continue
-            if param.default == Parameter.empty:
-                params[name] = ""
-            else:
-                params[name] = param.default
+            params[name] = "" if param.default == Parameter.empty else param.default
         return params
 
     def get_extensions(self):
@@ -168,7 +154,7 @@ class Extensions:
             constructor = inspect.signature(command_class.__init__)
             params = constructor.parameters
             extension_settings = [
-                name for name in params if name != "self" and name != "kwargs"
+                name for name in params if name not in ["self", "kwargs"]
             ]
             extension_commands = []
             if hasattr(command_class, "commands"):

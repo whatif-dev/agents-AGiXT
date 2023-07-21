@@ -12,10 +12,11 @@ with open(readme_path, encoding="utf-8") as f:
 # Get requirements from requirements.txt to a list
 with open(os.path.join(this_directory, "requirements.txt"), encoding="utf-8") as f:
     install_requires = f.read().splitlines()
-requirements = []
-for reqs in install_requires:
-    if "--" not in reqs and ":" not in reqs and "#" not in reqs:
-        requirements.append(reqs)
+requirements = [
+    reqs
+    for reqs in install_requires
+    if "--" not in reqs and ":" not in reqs and "#" not in reqs
+]
 # Get version from version file in agixt/version
 with open(os.path.join(this_directory, "agixt/version"), encoding="utf-8") as f:
     version = f.read().strip()

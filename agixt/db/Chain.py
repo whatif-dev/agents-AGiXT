@@ -60,11 +60,11 @@ class Chain:
                 .all()
             )
 
-            prompt_args = {}
-            for argument, chain_step_argument in arguments:
-                prompt_args[argument.name] = chain_step_argument.value
-
-            prompt.update(prompt_args)
+            prompt_args = {
+                argument.name: chain_step_argument.value
+                for argument, chain_step_argument in arguments
+            }
+            prompt |= prompt_args
 
             step_data = {
                 "step": step.step_number,
@@ -74,12 +74,10 @@ class Chain:
             }
             steps.append(step_data)
 
-        chain_data = {
+        return {
             "chain_name": chain_db.name,
             "steps": steps,
         }
-
-        return chain_data
 
     def get_chains(self):
         chains = session.query(ChainDB).all()
@@ -181,28 +179,25 @@ class Chain:
             command_name = prompt.get("command_name")
             command_args = prompt.copy()
             del command_args["command_name"]
-            command = (
+            if command := (
                 session.query(Command).filter(Command.name == command_name).first()
-            )
-            if command:
+            ):
                 target_command_id = command.id
         elif prompt_type == "Prompt":
             prompt_name = prompt.get("prompt_name")
             prompt_args = prompt.copy()
             del prompt_args["prompt_name"]
-            prompt_obj = (
+            if prompt_obj := (
                 session.query(Prompt).filter(Prompt.name == prompt_name).first()
-            )
-            if prompt_obj:
+            ):
                 target_prompt_id = prompt_obj.id
         elif prompt_type == "Chain":
             chain_name = prompt.get("chain_name")
             chain_args = prompt.copy()
             del chain_args["chain_name"]
-            chain_obj = (
+            if chain_obj := (
                 session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-            )
-            if chain_obj:
+            ):
                 target_chain_id = chain_obj.id
 
         chain_step.agent_id = agent_id
@@ -220,10 +215,11 @@ class Chain:
         ).delete()
 
         for argument_name, argument_value in prompt_args.items():
-            argument = (
-                session.query(Argument).filter(Argument.name == argument_name).first()
-            )
-            if argument:
+            if argument := (
+                session.query(Argument)
+                .filter(Argument.name == argument_name)
+                .first()
+            ):
                 chain_step_argument = ChainStepArgument(
                     chain_step_id=chain_step.id,
                     argument_id=argument.id,
@@ -233,17 +229,19 @@ class Chain:
                 session.commit()
 
     def delete_step(self, chain_name, step_number):
-        chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-
-        if chain:
-            chain_step = (
+        if (
+            chain := session.query(ChainDB)
+            .filter(ChainDB.name == chain_name)
+            .first()
+        ):
+            if chain_step := (
                 session.query(ChainStep)
                 .filter(
-                    ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+                    ChainStep.chain_id == chain.id,
+                    ChainStep.step_number == step_number,
                 )
                 .first()
-            )
-            if chain_step:
+            ):
                 session.delete(chain_step)  # Remove the chain step from the session
                 session.commit()
             else:
@@ -260,24 +258,23 @@ class Chain:
 
     def get_step(self, chain_name, step_number):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-        chain_step = (
+        return (
             session.query(ChainStep)
             .filter(
-                ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+                ChainStep.chain_id == chain.id,
+                ChainStep.step_number == step_number,
             )
             .first()
         )
-        return chain_step
 
     def get_steps(self, chain_name):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-        chain_steps = (
+        return (
             session.query(ChainStep)
             .filter(ChainStep.chain_id == chain.id)
             .order_by(ChainStep.step_number)
             .all()
         )
-        return chain_steps
 
     def move_step(self, chain_name, current_step_number, new_step_number):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -332,23 +329,21 @@ class Chain:
 
             return responses
         else:
-            chain_step = (
+            if chain_step := (
                 session.query(ChainStep)
                 .filter(
-                    ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+                    ChainStep.chain_id == chain.id,
+                    ChainStep.step_number == step_number,
                 )
                 .first()
-            )
-
-            if chain_step:
+            ):
                 chain_step_responses = (
                     session.query(ChainStepResponse)
                     .filter(ChainStepResponse.chain_step_id == chain_step.id)
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
-                step_responses = [response.content for response in chain_step_responses]
-                return step_responses
+                return [response.content for response in chain_step_responses]
             else:
                 return None
 
@@ -377,7 +372,7 @@ class Chain:
         session.add(chain)
         session.commit()
 
-        steps = steps["steps"] if "steps" in steps else steps
+        steps = steps.get("steps", steps)
         for step_data in steps:
             agent_name = step_data["agent_name"]
             agent = session.query(Agent).filter(Agent.name == agent_name).first()
@@ -468,12 +463,11 @@ class Chain:
                         value = value.replace("{agent_name}", agent_name)
                     if "{STEP" in value:
                         step_count = value.count("{STEP")
-                        for i in range(step_count):
+                        for _ in range(step_count):
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
-                            step_response = self.get_step_response(
+                            if step_response := self.get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
-                            )
-                            if step_response:
+                            ):
                                 resp = (
                                     step_response[0]
                                     if isinstance(step_response, list)
@@ -496,14 +490,13 @@ class Chain:
                 )
             if "{STEP" in prompt_content:
                 step_count = prompt_content.count("{STEP")
-                for i in range(step_count):
+                for _ in range(step_count):
                     new_step_number = int(
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
-                    step_response = self.get_step_response(
+                    if step_response := self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
-                    )
-                    if step_response:
+                    ):
                         resp = (
                             step_response[0]
                             if isinstance(step_response, list)
@@ -521,10 +514,7 @@ class Chain:
     ):
         if step:
             if "prompt_type" in step:
-                if agent_override != "":
-                    agent_name = agent_override
-                else:
-                    agent_name = step["agent_name"]
+                agent_name = agent_override if agent_override != "" else step["agent_name"]
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -538,7 +528,15 @@ class Chain:
                     agent_name=step["agent_name"],
                 )
 
-                if prompt_type == "Command":
+                if prompt_type == "Chain":
+                    result = ApiClient.run_chain(
+                        chain_name=args["chain"],
+                        user_input=args["input"],
+                        agent_name=agent_name,
+                        all_responses=False,
+                        from_step=1,
+                    )
+                elif prompt_type == "Command":
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args
                     )
@@ -554,18 +552,7 @@ class Chain:
                             **args,
                         },
                     )
-                elif prompt_type == "Chain":
-                    result = ApiClient.run_chain(
-                        chain_name=args["chain"],
-                        user_input=args["input"],
-                        agent_name=agent_name,
-                        all_responses=False,
-                        from_step=1,
-                    )
-        if result:
-            return result
-        else:
-            return None
+        return result if result else None
 
     async def run_chain(
         self,
@@ -584,14 +571,13 @@ class Chain:
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
-                    step = {}
-                    step["agent_name"] = (
-                        agent_override
+                    step = {
+                        "agent_name": agent_override
                         if agent_override != ""
-                        else step_data["agent_name"]
-                    )
-                    step["prompt_type"] = step_data["prompt_type"]
-                    step["prompt"] = step_data["prompt"]
+                        else step_data["agent_name"],
+                        "prompt_type": step_data["prompt_type"],
+                        "prompt": step_data["prompt"],
+                    }
                     logging.info(
                         f"Running step {step_data['step']} with agent {step['agent_name']}."
                     )
@@ -618,8 +604,4 @@ class Chain:
                     session.add(chain_step_response)
                     session.commit()
 
-        if all_responses:
-            return responses
-        else:
-            # Return only the last response in the chain.
-            return last_response
+        return responses if all_responses else last_response

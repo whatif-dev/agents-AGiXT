@@ -53,9 +53,7 @@ class Prompts:
                 .filter(PromptCategory.name == "Default")
                 .first()
             )
-        if prompt:
-            return prompt.content
-        return None
+        return prompt.content if prompt else None
 
     def get_prompts(self):
         prompts = session.query(Prompt).all()
@@ -74,8 +72,7 @@ class Prompts:
         return prompt_args
 
     def delete_prompt(self, prompt_name):
-        prompt = session.query(Prompt).filter_by(name=prompt_name).first()
-        if prompt:
+        if prompt := session.query(Prompt).filter_by(name=prompt_name).first():
             # Delete associated arguments
             arguments = session.query(Argument).filter_by(prompt_id=prompt.id).all()
             for argument in arguments:
@@ -85,51 +82,52 @@ class Prompts:
             session.commit()
 
     def update_prompt(self, prompt_name, prompt, prompt_category_name=None):
-        prompt_obj = session.query(Prompt).filter_by(name=prompt_name).first()
-        if prompt_obj:
-            if prompt_category_name:
-                prompt_category = (
-                    session.query(PromptCategory)
-                    .filter_by(name=prompt_category_name)
-                    .first()
-                )
-                if not prompt_category:
-                    prompt_category = PromptCategory(
-                        name=prompt_category_name,
-                        description=f"{prompt_category_name} category",
-                    )
-                    session.add(prompt_category)
-                    session.commit()
-                prompt_obj.prompt_category = prompt_category
-
-            prompt_obj.content = prompt
-            session.commit()
-
-            # Update prompt arguments
-            prompt_args = self.get_prompt_args(prompt)
-            existing_args = (
-                session.query(Argument).filter_by(prompt_id=prompt_obj.id).all()
+        if not (
+            prompt_obj := session.query(Prompt).filter_by(name=prompt_name).first()
+        ):
+            return
+        if prompt_category_name:
+            prompt_category = (
+                session.query(PromptCategory)
+                .filter_by(name=prompt_category_name)
+                .first()
             )
-            existing_arg_names = {arg.name for arg in existing_args}
+            if not prompt_category:
+                prompt_category = PromptCategory(
+                    name=prompt_category_name,
+                    description=f"{prompt_category_name} category",
+                )
+                session.add(prompt_category)
+                session.commit()
+            prompt_obj.prompt_category = prompt_category
 
-            # Delete removed arguments
-            for arg in existing_args:
-                if arg.name not in prompt_args:
-                    session.delete(arg)
+        prompt_obj.content = prompt
+        session.commit()
 
-            # Add new arguments
-            for arg in prompt_args:
-                if arg not in existing_arg_names:
-                    argument = Argument(
-                        prompt_id=prompt_obj.id,
-                        name=arg,
-                    )
-                    session.add(argument)
+        # Update prompt arguments
+        prompt_args = self.get_prompt_args(prompt)
+        existing_args = (
+            session.query(Argument).filter_by(prompt_id=prompt_obj.id).all()
+        )
+        existing_arg_names = {arg.name for arg in existing_args}
 
-            session.commit()
+        # Delete removed arguments
+        for arg in existing_args:
+            if arg.name not in prompt_args:
+                session.delete(arg)
+
+        # Add new arguments
+        for arg in prompt_args:
+            if arg not in existing_arg_names:
+                argument = Argument(
+                    prompt_id=prompt_obj.id,
+                    name=arg,
+                )
+                session.add(argument)
+
+        session.commit()
 
     def rename_prompt(self, prompt_name, new_prompt_name):
-        prompt = session.query(Prompt).filter_by(name=prompt_name).first()
-        if prompt:
+        if prompt := session.query(Prompt).filter_by(name=prompt_name).first():
             prompt.name = new_prompt_name
             session.commit()

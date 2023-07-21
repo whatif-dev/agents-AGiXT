@@ -23,7 +23,7 @@ password = os.getenv("POSTGRES_PASSWORD", "postgres")
 server = os.getenv("POSTGRES_SERVER", "localhost")
 port = os.getenv("POSTGRES_PORT", "5432")
 database_name = os.getenv("POSTGRES_DB", "postgres")
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+db_connected = os.getenv("DB_CONNECTED", "false").lower() == "true"
 Base = declarative_base()
 if db_connected:
     try:

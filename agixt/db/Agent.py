@@ -115,12 +115,7 @@ def rename_agent(agent_name, new_name):
 
 def get_agents():
     agents = session.query(AgentModel).all()
-    output = []
-
-    for agent in agents:
-        output.append({"name": agent.name, "status": False})
-
-    return output
+    return [{"name": agent.name, "status": False} for agent in agents]
 
 
 def import_agent_config(agent_name):
@@ -152,8 +147,11 @@ def import_agent_config(agent_name):
     commands = config.get("commands", {})
     for command_name, enabled in commands.items():
         if enabled:
-            command = session.query(Command).filter_by(name=command_name).first()
-            if command:
+            if (
+                command := session.query(Command)
+                .filter_by(name=command_name)
+                .first()
+            ):
                 agent_command = AgentCommand(
                     agent_id=agent.id, command_id=command.id, state=True
                 )
@@ -163,12 +161,11 @@ def import_agent_config(agent_name):
     settings = config.get("settings", {})
     for setting_name, setting_value in settings.items():
         if provider.id:
-            provider_setting = (
+            if provider_setting := (
                 session.query(ProviderSetting)
                 .filter_by(provider_id=provider.id, name=setting_name)
                 .first()
-            )
-            if provider_setting:
+            ):
                 agent_provider = (
                     session.query(AgentProvider)
                     .filter_by(provider_id=provider.id, agent_id=agent.id)
@@ -187,12 +184,11 @@ def import_agent_config(agent_name):
                         value=setting_value,
                     )
                     session.add(agent_provider_setting)
-            else:
-                if setting_value:
-                    agent_setting = AgentSettingModel(
-                        agent_id=agent.id, name=setting_name, value=setting_value
-                    )
-                    session.add(agent_setting)
+            elif setting_value:
+                agent_setting = AgentSettingModel(
+                    agent_id=agent.id, name=setting_name, value=setting_value
+                )
+                session.add(agent_setting)
     session.commit()
     print(f"Agent config imported successfully for agent: {agent_name}")
 
@@ -227,19 +223,19 @@ class Agent:
                 setattr(self, key, self.AGENT_CONFIG[key])
 
     def get_agent_config(self):
-        agent = (
-            session.query(AgentModel).filter(AgentModel.name == self.agent_name).first()
-        )
-        if agent:
-            agent_setting = (
+        if agent := (
+            session.query(AgentModel)
+            .filter(AgentModel.name == self.agent_name)
+            .first()
+        ):
+            if agent_setting := (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "config",
                 )
                 .first()
-            )
-            if agent_setting:
+            ):
                 config = json.loads(agent_setting.value)
 
                 # Retrieve the enabled commands for the agent
@@ -271,8 +267,7 @@ class Agent:
     async def instruct(self, prompt, tokens):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
-        return answer
+        return await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -292,102 +287,98 @@ class Agent:
         return f"Commands Available To Complete Task:\n{command_list}\n\n"
 
     def update_agent_config(self, new_config, config_key):
-        agent = (
-            session.query(AgentModel).filter(AgentModel.name == self.agent_name).first()
-        )
-        if agent:
-            if config_key == "commands":
-                # Update AgentCommand relation
-                for command_name, enabled in new_config.items():
-                    command = (
-                        session.query(Command).filter_by(name=command_name).first()
-                    )
-                    if command:
-                        agent_command = (
-                            session.query(AgentCommand)
-                            .filter_by(agent_id=agent.id, command_id=command.id)
-                            .first()
-                        )
-                        if agent_command:
-                            agent_command.state = enabled
-                        else:
-                            agent_command = AgentCommand(
-                                agent_id=agent.id, command_id=command.id, state=enabled
-                            )
-                            session.add(agent_command)
-            else:
-                provider = (
-                    session.query(ProviderModel)
-                    .filter_by(name=self.AI_PROVIDER)
-                    .first()
-                )
-                if not provider:
-                    print(
-                        f"Provider '{self.AI_PROVIDER}' does not exist in the database."
-                    )
-                    return
-
-                agent_provider = (
-                    session.query(AgentProvider)
-                    .filter_by(provider_id=provider.id, agent_id=agent.id)
-                    .first()
-                )
-                if not agent_provider:
-                    agent_provider = AgentProvider(
-                        provider_id=provider.id, agent_id=agent.id
-                    )
-                    session.add(agent_provider)
-                    session.flush()  # Save the agent_provider object to generate an ID
-
-                if config_key in ["provider_settings", "settings"]:
-                    config_dict = (
-                        agent_provider.provider_settings
-                        if config_key == "provider_settings"
-                        else agent_provider.settings
-                    )
-
-                    for setting_name, setting_value in new_config.items():
-                        setting = (
-                            session.query(ProviderSetting)
-                            .filter_by(provider_id=provider.id, name=setting_name)
-                            .first()
-                        )
-                        if setting:
-                            agent_provider_setting = (
-                                session.query(AgentProviderSetting)
-                                .filter_by(
-                                    provider_setting_id=setting.id,
-                                    agent_provider_id=agent_provider.id,
-                                )
-                                .first()
-                            )
-                            if agent_provider_setting:
-                                agent_provider_setting.value = setting_value
-                            else:
-                                agent_provider_setting = AgentProviderSetting(
-                                    provider_setting_id=setting.id,
-                                    agent_provider_id=agent_provider.id,
-                                    value=setting_value,
-                                )
-                                session.add(agent_provider_setting)
-                else:
-                    agent_setting = (
-                        session.query(AgentSettingModel)
-                        .filter_by(agent_id=agent.id, name=config_key)
-                        .first()
-                    )
-                    if agent_setting:
-                        agent_setting.value = new_config
-                    else:
-                        agent_setting = AgentSettingModel(
-                            agent_id=agent.id, name=config_key, value=new_config
-                        )
-                        session.add(agent_setting)
-
-            session.commit()
-            return f"Agent {self.agent_name} configuration updated."
-        else:
+        if not (
+            agent := (
+                session.query(AgentModel)
+                .filter(AgentModel.name == self.agent_name)
+                .first()
+            )
+        ):
             return f"Agent {self.agent_name} not found."
+        if config_key == "commands":
+                # Update AgentCommand relation
+            for command_name, enabled in new_config.items():
+                if command := (
+                    session.query(Command).filter_by(name=command_name).first()
+                ):
+                    if agent_command := (
+                        session.query(AgentCommand)
+                        .filter_by(agent_id=agent.id, command_id=command.id)
+                        .first()
+                    ):
+                        agent_command.state = enabled
+                    else:
+                        agent_command = AgentCommand(
+                            agent_id=agent.id, command_id=command.id, state=enabled
+                        )
+                        session.add(agent_command)
+        else:
+            provider = (
+                session.query(ProviderModel)
+                .filter_by(name=self.AI_PROVIDER)
+                .first()
+            )
+            if not provider:
+                print(
+                    f"Provider '{self.AI_PROVIDER}' does not exist in the database."
+                )
+                return
+
+            agent_provider = (
+                session.query(AgentProvider)
+                .filter_by(provider_id=provider.id, agent_id=agent.id)
+                .first()
+            )
+            if not agent_provider:
+                agent_provider = AgentProvider(
+                    provider_id=provider.id, agent_id=agent.id
+                )
+                session.add(agent_provider)
+                session.flush()  # Save the agent_provider object to generate an ID
+
+            if config_key in ["provider_settings", "settings"]:
+                config_dict = (
+                    agent_provider.provider_settings
+                    if config_key == "provider_settings"
+                    else agent_provider.settings
+                )
+
+                for setting_name, setting_value in new_config.items():
+                    if setting := (
+                        session.query(ProviderSetting)
+                        .filter_by(provider_id=provider.id, name=setting_name)
+                        .first()
+                    ):
+                        if agent_provider_setting := (
+                            session.query(AgentProviderSetting)
+                            .filter_by(
+                                provider_setting_id=setting.id,
+                                agent_provider_id=agent_provider.id,
+                            )
+                            .first()
+                        ):
+                            agent_provider_setting.value = setting_value
+                        else:
+                            agent_provider_setting = AgentProviderSetting(
+                                provider_setting_id=setting.id,
+                                agent_provider_id=agent_provider.id,
+                                value=setting_value,
+                            )
+                            session.add(agent_provider_setting)
+            elif agent_setting := (
+                session.query(AgentSettingModel)
+                .filter_by(agent_id=agent.id, name=config_key)
+                .first()
+            ):
+                agent_setting.value = new_config
+            else:
+                agent_setting = AgentSettingModel(
+                    agent_id=agent.id, name=config_key, value=new_config
+                )
+                session.add(agent_setting)
+
+        session.commit()
+        return f"Agent {self.agent_name} configuration updated."
 
     def wipe_agent_memories(self):
         memories_folder = os.path.normpath(
