@@ -52,14 +52,9 @@ class Memories:
                 await self.chroma_client.create_collection_async(
                     collection_name="memories"
                 )
-                memories = await self.chroma_client.get_collection_async(
-                    collection_name="memories"
-                )
-            else:
-                memories = await self.chroma_client.get_collection_async(
-                    collection_name="memories"
-                )
-            return memories
+            return await self.chroma_client.get_collection_async(
+                collection_name="memories"
+            )
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
 
@@ -70,7 +65,7 @@ class Memories:
             embedder, chunk_size = await self.get_embedder()
             collection = await self.get_collection()
             if not isinstance(result, str):
-                result = str(result)
+                result = result
             chunks = await self.chunk_content(content=result, chunk_size=chunk_size)
             for chunk in chunks:
                 record = MemoryRecord(
@@ -97,7 +92,7 @@ class Memories:
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
         embedder, chunk_size = await self.get_embedder()
         collection = await self.get_collection()
-        if collection == None:
+        if collection is None:
             return []
         embed = await Embedding(AGENT_CONFIG=self.agent_config).embed_text(text=query)
         try:
@@ -109,9 +104,7 @@ class Memories:
             )
         except:
             return ""
-        context = []
-        for memory, score in results:
-            context.append(memory._text)
+        context = [memory._text for memory, score in results]
         trimmed_context = []
         total_tokens = 0
         for item in context:
@@ -123,16 +116,12 @@ class Memories:
                 break
         logging.info(f"Context Injected: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
-        response = (
-            f"The user's input causes you remember these things:\n {context_str} \n\n"
-        )
-        return response
+        return f"The user's input causes you remember these things:\n {context_str} \n\n"
 
     def score_chunk(self, chunk: str, keywords: set):
         """Score a chunk based on the number of query keywords it contains."""
         chunk_counter = Counter(chunk.split())
-        score = sum(chunk_counter[keyword] for keyword in keywords)
-        return score
+        return sum(chunk_counter[keyword] for keyword in keywords)
 
     async def chunk_content(
         self, content: str, chunk_size: int, overlap: int = 2

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+db_connected = os.getenv("DB_CONNECTED", "false").lower() == "true"
 if db_connected:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from db.Chain import Chain
@@ -73,19 +73,18 @@ app.add_middleware(
 
 
 async def get_api_key(authorization: str = Header(None)):
-    if AGIXT_API_KEY:
-        if authorization is None:
-            raise HTTPException(
-                status_code=400, detail="Authorization header is missing"
-            )
-        scheme, _, api_key = authorization.partition(" ")
-        if scheme.lower() != "bearer":
-            raise HTTPException(
-                status_code=400, detail="Authorization scheme is not Bearer"
-            )
-        return api_key
-    else:
+    if not AGIXT_API_KEY:
         return None
+    if authorization is None:
+        raise HTTPException(
+            status_code=400, detail="Authorization header is missing"
+        )
+    scheme, _, api_key = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=400, detail="Authorization scheme is not Bearer"
+        )
+    return api_key
 
 
 def verify_api_key(api_key: str = Depends(get_api_key)):
@@ -470,7 +469,7 @@ async def delete_history_message(
         message=history.message,
         conversation_name=f"{history.agent_name} History",
     )
-    return ResponseMessage(message=f"Message deleted.")
+    return ResponseMessage(message="Message deleted.")
 
 
 @app.delete(
@@ -502,11 +501,8 @@ async def completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
     agent_config = Agent(agent_name=prompt.model).get_agent_config()
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
+    if "settings" in agent_config and "AI_MODEL" in agent_config["settings"]:
+        model = agent_config["settings"]["AI_MODEL"]
     else:
         model = "undefined"
     response = await agent.run(
@@ -520,7 +516,7 @@ async def completion(prompt: Completions):
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
     random_chars = "".join(random.choice(characters) for _ in range(15))
-    res_model = {
+    return {
         "id": f"cmpl-{random_chars}",
         "object": "text_completion",
         "created": int(time.time()),
@@ -539,7 +535,6 @@ async def completion(prompt: Completions):
             "total_tokens": total_tokens,
         },
     }
-    return res_model
 
 
 @app.post(
@@ -549,11 +544,8 @@ async def chat_completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
     agent_config = Agent(agent_name=prompt.model).get_agent_config()
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
+    if "settings" in agent_config and "AI_MODEL" in agent_config["settings"]:
+        model = agent_config["settings"]["AI_MODEL"]
     else:
         model = "undefined"
     response = await agent.run(
@@ -567,7 +559,7 @@ async def chat_completion(prompt: Completions):
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
     random_chars = "".join(random.choice(characters) for _ in range(15))
-    res_model = {
+    return {
         "id": f"chatcmpl-{random_chars}",
         "object": "chat.completion",
         "created": int(time.time()),
@@ -590,7 +582,6 @@ async def chat_completion(prompt: Completions):
             "total_tokens": total_tokens,
         },
     }
-    return res_model
 
 
 # Use agent name in the model field to use embedding.
@@ -656,8 +647,7 @@ async def toggle_command(
 
 @app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def get_chains():
-    chains = Chain().get_chains()
-    return chains
+    return Chain().get_chains()
 
 
 @app.get(
@@ -686,14 +676,13 @@ async def get_chain_responses(chain_name: str):
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain(chain_name: str, user_input: RunChain):
-    chain_response = await Chain().run_chain(
+    return await Chain().run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
         all_responses=user_input.all_responses,
         from_step=user_input.from_step,
     )
-    return chain_response
 
 
 @app.post(
@@ -710,13 +699,12 @@ async def run_chain_step(chain_name: str, step_number: str, user_input: RunChain
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    chain_step_response = await chain.run_chain_step(
+    return await chain.run_chain_step(
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
     )
-    return chain_step_response
 
 
 @app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+db_connected = os.getenv("DB_CONNECTED", "false").lower() == "true"
 
 if db_connected:
     from db.imports import (
@@ -95,18 +95,16 @@ def import_agixt_hub():
                         if os.path.exists(dest_item):
                             shutil.rmtree(dest_item)
                         shutil.copytree(src_item, dest_item)
-                    else:
-                        if not (
+                    elif not (
                             "config.json" not in dest_item and os.path.exists(dest_item)
                         ):  # Don't overwrite existing config.json
-                            shutil.copy2(src_item, dest_item)
-            else:
-                if "config.json" not in dest_file and not os.path.exists(
+                        shutil.copy2(src_item, dest_item)
+            elif "config.json" not in dest_file and not os.path.exists(
                     dest_file
                 ):  # Don't overwrite existing config.json
-                    if os.path.exists(dest_file):
-                        os.remove(dest_file)
-                    shutil.move(src_file, dest_file)
+                if os.path.exists(dest_file):
+                    os.remove(dest_file)
+                shutil.move(src_file, dest_file)
 
         # Remove the reponame-main directory
         shutil.rmtree(f"{repo_name}-main")

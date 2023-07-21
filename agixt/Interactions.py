@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+db_connected = os.getenv("DB_CONNECTED", "false").lower() == "true"
 if db_connected:
     from db.Agent import Agent
     from db.Prompts import Prompts
@@ -163,9 +163,9 @@ class Interactions:
         browse_links: bool = False,
         **kwargs,
     ):
-        shots = int(shots)
-        disable_memory = True if str(disable_memory).lower() != "true" else False
-        browse_links = True if str(browse_links).lower() == "true" else False
+        shots = shots
+        disable_memory = str(disable_memory).lower() != "true"
+        browse_links = str(browse_links).lower() == "true"
         if conversation_name != "":
             conversation_name = f"{self.agent_name} History"
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
@@ -177,7 +177,7 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
-        if browse_links != False:
+        if browse_links:
             links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
             if links is not None and len(links) > 0:
                 for link in links:
@@ -201,13 +201,12 @@ class Interactions:
                                         )
                                         i = i + 1
         if websearch:
-            if user_input == "":
-                if "primary_objective" in kwargs and "task" in kwargs:
-                    search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
-                else:
-                    search_string = ""
-            else:
+            if user_input:
                 search_string = user_input
+            elif "primary_objective" in kwargs and "task" in kwargs:
+                search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+            else:
+                search_string = ""
             if search_string != "":
                 await self.websearch.websearch_agent(
                     user_input=search_string,
@@ -216,11 +215,11 @@ class Interactions:
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
-            top_results=int(context_results),
+            top_results=context_results,
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
-            **kwargs,
+            **kwargs
         )
         try:
             # Workaround for non-threaded providers
@@ -239,10 +238,10 @@ class Interactions:
                 self.failures == 0
                 logging.info("Failed to get a response 5 times in a row.")
                 return None
-            logging.info(f"Retrying in 10 seconds...")
+            logging.info("Retrying in 10 seconds...")
             time.sleep(10)
             if context_results > 0:
-                context_results = context_results - 1
+                context_results -= 1
             self.response = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name=prompt,
@@ -270,15 +269,13 @@ class Interactions:
             return_response = ""
             if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
                 autonomous = (
-                    True
-                    if self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"]
+                    self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"]
                     == True
-                    else False
                 )
             else:
                 autonomous = False
 
-            if autonomous == True:
+            if autonomous:
                 try:
                     self.response = json.loads(self.response)
                     if "response" in self.response:
@@ -298,27 +295,27 @@ class Interactions:
                 return_response = f"{self.response}\n\n{execution_response}"
             self.response = return_response
         logging.info(f"Response: {self.response}")
-        if self.response != "" and self.response != None:
-            if disable_memory != True:
+        if self.response not in ["", None]:
+            if not disable_memory:
                 try:
                     await self.memories.store_result(
                         input=user_input, result=self.response
                     )
                 except:
                     pass
-            if user_input != "":
+            if not user_input:
                 log_interaction(
                     agent_name=self.agent_name,
                     conversation_name=conversation_name,
                     role="USER",
-                    message=user_input,
+                    message=formatted_prompt,
                 )
             else:
                 log_interaction(
                     agent_name=self.agent_name,
                     conversation_name=conversation_name,
                     role="USER",
-                    message=formatted_prompt,
+                    message=user_input,
                 )
             log_interaction(
                 agent_name=self.agent_name,
@@ -329,7 +326,7 @@ class Interactions:
 
         if shots > 1:
             responses = [self.response]
-            for shot in range(shots - 1):
+            for _ in range(shots - 1):
                 shot_response = ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
@@ -363,16 +360,12 @@ class Interactions:
                 return {}
             if isinstance(cleaned_json, list):
                 cleaned_json = cleaned_json[0]
-            response = json.loads(cleaned_json)
-            return response
+            return json.loads(cleaned_json)
         except:
             logging.info("INVALID JSON RESPONSE")
             logging.info(execution_response)
             logging.info("... Trying again.")
-            if context_results != 0:
-                context_results = context_results - 1
-            else:
-                context_results = 0
+            context_results = context_results - 1 if context_results != 0 else 0
             execution_response = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="JSONFormatter",
@@ -420,56 +413,54 @@ class Interactions:
             context_results=context_results,
             **kwargs,
         )
-        if "commands" in validated_response:
-            for command_name, command_args in validated_response["commands"].items():
-                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                if command_name is not None:
-                    for available_command in self.agent.available_commands:
-                        if command_name == available_command["friendly_name"]:
-                            # Check if the command is a valid command in the self.avent.available_commands list
-                            try:
-                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                    command_output = await self.agent.execute(
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                    )
-                                else:
-                                    command_output = (
-                                        self.create_command_suggestion_chain(
-                                            agent_name=self.agent_name,
-                                            command_name=command_name,
-                                            command_args=command_args,
-                                        )
-                                    )
-                            except Exception as e:
-                                logging.info("Command validation failed, retrying...")
-                                validate_command = ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="ValidationFailed",
-                                    prompt_args={
-                                        "command_name": command_name,
-                                        "command_args": command_args,
-                                        "command_output": e,
-                                        "user_input": user_input,
-                                        "context_results": context_results,
-                                        **kwargs,
-                                    },
-                                )
-                                return await self.execution_agent(
-                                    execution_response=validate_command,
-                                    user_input=user_input,
-                                    context_results=context_results,
-                                    **kwargs,
-                                )
-                            logging.info(
-                                f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
-                            )
-                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                            return response
-                else:
-                    if command_name == "None.":
-                        return "\nNo commands were executed.\n"
-                    else:
-                        return f"\Command not recognized: `{command_name}`."
-        else:
+        if "commands" not in validated_response:
             return "\nNo commands were executed.\n"
+        for command_name, command_args in validated_response["commands"].items():
+            if command_name is None:
+                return (
+                    "\nNo commands were executed.\n"
+                    if command_name == "None."
+                    else f"\Command not recognized: `{command_name}`."
+                )
+            for available_command in self.agent.available_commands:
+                if command_name == available_command["friendly_name"]:
+                            # Check if the command is a valid command in the self.avent.available_commands list
+                    try:
+                        command_output = (
+                            await self.agent.execute(
+                                command_name=command_name,
+                                command_args=command_args,
+                            )
+                            if bool(self.agent.AUTONOMOUS_EXECUTION)
+                            else (
+                                self.create_command_suggestion_chain(
+                                    agent_name=self.agent_name,
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                )
+                            )
+                        )
+                    except Exception as e:
+                        logging.info("Command validation failed, retrying...")
+                        validate_command = ApiClient.prompt_agent(
+                            agent_name=self.agent_name,
+                            prompt_name="ValidationFailed",
+                            prompt_args={
+                                "command_name": command_name,
+                                "command_args": command_args,
+                                "command_output": e,
+                                "user_input": user_input,
+                                "context_results": context_results,
+                                **kwargs,
+                            },
+                        )
+                        return await self.execution_agent(
+                            execution_response=validate_command,
+                            user_input=user_input,
+                            context_results=context_results,
+                            **kwargs,
+                        )
+                    logging.info(
+                        f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                    )
+                    return f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"

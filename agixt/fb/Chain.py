@@ -55,7 +55,7 @@ def get_chain_responses_file_path(chain_name):
 class Chain:
     def import_chain(self, chain_name: str, steps: dict):
         file_path = get_chain_file_path(chain_name=chain_name)
-        steps = steps["steps"] if "steps" in steps else steps
+        steps = steps.get("steps", steps)
         with open(file_path, "w") as f:
             json.dump({"chain_name": chain_name, "steps": steps}, f)
         return f"Chain '{chain_name}' imported."
@@ -70,10 +70,11 @@ class Chain:
             return {}
 
     def get_chains(self):
-        chains = [
-            f.replace(".json", "") for f in os.listdir("chains") if f.endswith(".json")
+        return [
+            f.replace(".json", "")
+            for f in os.listdir("chains")
+            if f.endswith(".json")
         ]
-        return chains
 
     def add_chain(self, chain_name):
         file_path = get_chain_file_path(chain_name=chain_name)
@@ -134,10 +135,10 @@ class Chain:
 
     def get_step(self, chain_name, step_number):
         chain_data = self.get_chain(chain_name=chain_name)
-        for step in chain_data["steps"]:
-            if step["step"] == step_number:
-                return step
-        return None
+        return next(
+            (step for step in chain_data["steps"] if step["step"] == step_number),
+            None,
+        )
 
     def get_steps(self, chain_name):
         chain_data = self.get_chain(chain_name=chain_name)
@@ -149,21 +150,20 @@ class Chain:
         if not 1 <= new_step_number <= len(
             chain_data["steps"]
         ) or current_step_number not in [step["step"] for step in chain_data["steps"]]:
-            print(f"Error: Invalid step numbers.")
+            print("Error: Invalid step numbers.")
             return
         moved_step = None
         for step in chain_data["steps"]:
             if step["step"] == current_step_number:
                 moved_step = step
-                chain_data["steps"].remove(step)
+                chain_data["steps"].remove(moved_step)
                 break
         for step in chain_data["steps"]:
             if new_step_number < current_step_number:
                 if new_step_number <= step["step"] < current_step_number:
                     step["step"] += 1
-            else:
-                if current_step_number < step["step"] <= new_step_number:
-                    step["step"] -= 1
+            elif current_step_number < step["step"] <= new_step_number:
+                step["step"] -= 1
         moved_step["step"] = new_step_number
         chain_data["steps"].append(moved_step)
         chain_data["steps"] = sorted(chain_data["steps"], key=lambda x: x["step"])
@@ -177,12 +177,11 @@ class Chain:
                 responses = json.load(f)
             if step_number == "all":
                 return responses
-            else:
-                data = responses.get(str(step_number))
-                if isinstance(data, dict) and "response" in data:
-                    data = data["response"]
-                logging.info(f"Step {step_number} response: {data}")
-                return data
+            data = responses.get(str(step_number))
+            if isinstance(data, dict) and "response" in data:
+                data = data["response"]
+            logging.info(f"Step {step_number} response: {data}")
+            return data
         except:
             return ""
 
@@ -206,12 +205,11 @@ class Chain:
                         value = value.replace("{agent_name}", agent_name)
                     if "{STEP" in value:
                         step_count = value.count("{STEP")
-                        for i in range(step_count):
+                        for _ in range(step_count):
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
-                            step_response = self.get_step_response(
+                            if step_response := self.get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
-                            )
-                            if step_response:
+                            ):
                                 resp = (
                                     step_response[0]
                                     if isinstance(step_response, list)
@@ -234,14 +232,13 @@ class Chain:
                 )
             if "{STEP" in prompt_content:
                 step_count = prompt_content.count("{STEP")
-                for i in range(step_count):
+                for _ in range(step_count):
                     new_step_number = int(
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
-                    step_response = self.get_step_response(
+                    if step_response := self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
-                    )
-                    if step_response:
+                    ):
                         resp = (
                             step_response[0]
                             if isinstance(step_response, list)
@@ -259,10 +256,7 @@ class Chain:
     ):
         if step:
             if "prompt_type" in step:
-                if agent_override != "":
-                    agent_name = agent_override
-                else:
-                    agent_name = step["agent_name"]
+                agent_name = agent_override if agent_override != "" else step["agent_name"]
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -277,7 +271,17 @@ class Chain:
                 )
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
-                if prompt_type == "Command":
+                if prompt_type == "Chain":
+                    result = ApiClient.run_chain(
+                        chain_name=args["chain"],
+                        user_input=args["input"],
+                        agent_name=agent_name,
+                        all_responses=args["all_responses"]
+                        if "all_responses" in args
+                        else False,
+                        from_step=args["from_step"] if "from_step" in args else 1,
+                    )
+                elif prompt_type == "Command":
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args
                     )
@@ -293,24 +297,13 @@ class Chain:
                             **args,
                         },
                     )
-                elif prompt_type == "Chain":
-                    result = ApiClient.run_chain(
-                        chain_name=args["chain"],
-                        user_input=args["input"],
-                        agent_name=agent_name,
-                        all_responses=args["all_responses"]
-                        if "all_responses" in args
-                        else False,
-                        from_step=args["from_step"] if "from_step" in args else 1,
-                    )
-        if result:
-            if isinstance(result, dict) and "response" in result:
-                result = result["response"]
-            if result == "Unable to retrieve data.":
-                result = None
-            return result
-        else:
+        if not result:
             return None
+        if isinstance(result, dict) and "response" in result:
+            result = result["response"]
+        if result == "Unable to retrieve data.":
+            result = None
+        return result
 
     async def run_chain(
         self,
@@ -329,15 +322,14 @@ class Chain:
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
-                    step = {}
-                    step["agent_name"] = (
-                        agent_override
+                    step = {
+                        "agent_name": agent_override
                         if agent_override != ""
-                        else step_data["agent_name"]
-                    )
-                    step["prompt_type"] = step_data["prompt_type"]
-                    step["prompt"] = step_data["prompt"]
-                    step["step"] = step_data["step"]
+                        else step_data["agent_name"],
+                        "prompt_type": step_data["prompt_type"],
+                        "prompt": step_data["prompt"],
+                        "step": step_data["step"],
+                    }
                     logging.info(
                         f"Running step {step_data['step']} with agent {step['agent_name']}."
                     )
@@ -351,7 +343,7 @@ class Chain:
                     except Exception as e:
                         logging.error(e)
                         step_response = None
-                    if step_response == None:
+                    if step_response is None:
                         return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed."
                     step["response"] = step_response
                     last_response = step_response
@@ -363,8 +355,4 @@ class Chain:
                     with open(file_path, "w") as f:
                         json.dump(responses, f)
 
-        if all_responses:
-            return responses
-        else:
-            # Return only the last response in the chain.
-            return last_response
+        return responses if all_responses else last_response

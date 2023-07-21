@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+db_connected = os.getenv("DB_CONNECTED", "false").lower() == "true"
 if db_connected:
     from db.Agent import Agent
 else:
@@ -80,7 +80,7 @@ class Websearch:
             return None, None
 
     async def resursive_browsing(self, user_input, links):
-        chunk_size = int(int(self.max_tokens) / 3)
+        chunk_size = int(self.max_tokens) // 3
         try:
             words = links.split()
             links = [
@@ -219,7 +219,7 @@ class Websearch:
             summaries = [
                 result["title"] + " - " + result["url"] for result in results["results"]
             ]
-            if len(summaries) < 1:
+            if not summaries:
                 self.failures.append(self.searx_instance_url)
                 self.searx_instance_url = ""
                 return await self.search(query=query)
@@ -260,11 +260,11 @@ class Websearch:
                     )
                     self.tasks.append(task)
 
-            if int(timeout) == 0:
+            if timeout == 0:
                 await asyncio.gather(*self.tasks)
             else:
                 logging.info(f"Web searching for {timeout} seconds... Please wait...")
-                await asyncio.sleep(int(timeout))
+                await asyncio.sleep(timeout)
                 logging.info("Websearch tasks completed.")
         else:
             logging.info("No results found.")

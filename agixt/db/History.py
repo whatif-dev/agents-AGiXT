@@ -107,16 +107,14 @@ def new_conversation(agent_name, conversation_name):
         print(f"Agent '{agent_name}' not found in the database.")
         return
 
-    # Check if the conversation already exists for the agent
-    existing_conversation = (
+    if existing_conversation := (
         session.query(Conversation)
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
         )
         .first()
-    )
-    if existing_conversation:
+    ):
         print(
             f"Conversation '{conversation_name}' already exists for agent '{agent_name}'."
         )
